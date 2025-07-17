@@ -140,6 +140,9 @@ const UniversalComicReader = () => {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showAuthPrompt, setShowAuthPrompt] = useState(false);
+  const [showReaderHeader, setShowReaderHeader] = useState(true);
+  const [imageScale, setImageScale] = useState('fit'); // 'fit', 'width', 'height'
+  const [dualPageMode, setDualPageMode] = useState('auto'); // 'auto', 'single', 'dual'
 
   // Initialize app
   useEffect(() => {
@@ -387,28 +390,36 @@ const UniversalComicReader = () => {
     }
   };
 
-  // Navigation functions - UPDATED TO SAVE PROGRESS
+  // Navigation functions - UPDATED FOR DUAL PAGE MODE
   const nextPage = () => {
-    if (currentChapter && currentPage < currentChapter.pageCount - 1) {
-      const newPage = currentPage + 1;
-      setCurrentPage(newPage);
-      // Save progress for current page
-      saveProgress(currentChapter.id, true, newPage);
-    } else if (currentChapter) {
-      // Move to next chapter
-      const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
-      if (currentIndex < chapters.length - 1) {
-        const nextChapter = chapters[currentIndex + 1];
-        // Mark current chapter as fully read before moving to next
-        saveProgress(currentChapter.id, true, currentChapter.pageCount - 1);
-        openChapter(nextChapter);
+    if (currentChapter) {
+      const isDual = shouldShowDualPages();
+      const increment = isDual ? 2 : 1;
+      
+      if (currentPage + increment <= currentChapter.pageCount - 1) {
+        const newPage = currentPage + increment;
+        setCurrentPage(newPage);
+        // Save progress for the furthest page viewed
+        saveProgress(currentChapter.id, true, newPage);
+      } else {
+        // Move to next chapter
+        const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
+        if (currentIndex < chapters.length - 1) {
+          const nextChapter = chapters[currentIndex + 1];
+          // Mark current chapter as fully read before moving to next
+          saveProgress(currentChapter.id, true, currentChapter.pageCount - 1);
+          openChapter(nextChapter);
+        }
       }
     }
   };
 
   const prevPage = () => {
-    if (currentPage > 0) {
-      const newPage = currentPage - 1;
+    const isDual = shouldShowDualPages();
+    const decrement = isDual ? 2 : 1;
+    
+    if (currentPage - decrement >= 0) {
+      const newPage = currentPage - decrement;
       setCurrentPage(newPage);
       // Save progress for current page
       saveProgress(currentChapter.id, true, newPage);
@@ -418,35 +429,112 @@ const UniversalComicReader = () => {
       if (currentIndex > 0) {
         const prevChapter = chapters[currentIndex - 1];
         setCurrentChapter(prevChapter);
-        const lastPageOfPrevChapter = prevChapter.pageCount - 1;
-        setCurrentPage(lastPageOfPrevChapter);
+        // Go to last page or second-to-last page depending on dual mode
+        const lastPageOfPrevChapter = isDual && prevChapter.pageCount > 1 
+          ? prevChapter.pageCount - 2 
+          : prevChapter.pageCount - 1;
+        setCurrentPage(Math.max(0, lastPageOfPrevChapter));
         saveProgress(prevChapter.id, true, lastPageOfPrevChapter);
       }
     }
   };
 
-  // Touch/click handling
+  // Touch/click handling - UPDATED FOR HEADER TOGGLE
   const handleReaderClick = (e) => {
     if (!readerRef.current) return;
 
     const rect = readerRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
     const width = rect.width;
+    const height = rect.height;
 
-    if (clickX < width / 3) {
+    // Define tap zones
+    const leftZone = width * 0.25;
+    const rightZone = width * 0.75;
+    const topZone = height * 0.25;
+    const bottomZone = height * 0.75;
+
+    // Middle zone for header toggle
+    if (clickX >= leftZone && clickX <= rightZone && clickY >= topZone && clickY <= bottomZone) {
+      setShowReaderHeader(!showReaderHeader);
+    }
+    // Left zone for previous page
+    else if (clickX < leftZone) {
       prevPage();
-    } else if (clickX > (2 * width) / 3) {
+    }
+    // Right zone for next page
+    else if (clickX > rightZone) {
       nextPage();
     }
   };
 
-  // Keyboard navigation - UPDATED TO SAVE PROGRESS
+  // Check if we should show dual pages
+  const shouldShowDualPages = () => {
+    if (dualPageMode === 'single') return false;
+    if (dualPageMode === 'dual') return true;
+    // Auto mode: show dual pages if landscape and we have enough pages
+    return window.innerWidth > window.innerHeight && currentChapter && currentPage < currentChapter.pageCount - 1;
+  };
+
+  // Get the current page(s) to display
+  const getCurrentPages = () => {
+    if (!currentChapter) return [];
+    
+    if (shouldShowDualPages()) {
+      // Show current page and next page
+      const pages = [currentChapter.pages[currentPage]];
+      if (currentPage + 1 < currentChapter.pageCount) {
+        pages.push(currentChapter.pages[currentPage + 1]);
+      }
+      return pages;
+    } else {
+      // Single page mode
+      return [currentChapter.pages[currentPage]];
+    }
+  };
+
+  // Toggle dual page mode
+  const toggleDualPageMode = () => {
+    const modes = ['auto', 'single', 'dual'];
+    const currentIndex = modes.indexOf(dualPageMode);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    setDualPageMode(modes[nextIndex]);
+  };
+
+  // Toggle image scaling mode
+  const toggleImageScale = () => {
+    const scales = ['fit', 'width', 'height'];
+    const currentIndex = scales.indexOf(imageScale);
+    const nextIndex = (currentIndex + 1) % scales.length;
+    setImageScale(scales[nextIndex]);
+  };
+
+  // Get image scaling classes based on current mode and dual page state
+  const getImageClasses = () => {
+    const isDual = shouldShowDualPages();
+    
+    switch (imageScale) {
+      case 'width':
+        return isDual ? 'w-1/2 h-auto' : 'w-full h-auto';
+      case 'height':
+        return 'w-auto h-full';
+      case 'fit':
+      default:
+        return isDual ? 'max-w-1/2 max-h-full object-contain' : 'max-w-full max-h-full object-contain';
+    }
+  };
+
+  // Keyboard navigation - UPDATED FOR DUAL PAGE MODE
   useEffect(() => {
     const handleKeyPress = (e) => {
       if (currentView === 'reader') {
         if (e.key === 'ArrowLeft' || e.key === 'a') {
-          if (currentPage > 0) {
-            const newPage = currentPage - 1;
+          const isDual = shouldShowDualPages();
+          const decrement = isDual ? 2 : 1;
+          
+          if (currentPage - decrement >= 0) {
+            const newPage = currentPage - decrement;
             setCurrentPage(newPage);
             saveProgress(currentChapter.id, true, newPage);
           } else if (currentChapter) {
@@ -454,14 +542,19 @@ const UniversalComicReader = () => {
             if (currentIndex > 0) {
               const prevChapter = chapters[currentIndex - 1];
               setCurrentChapter(prevChapter);
-              const lastPageOfPrevChapter = prevChapter.pageCount - 1;
-              setCurrentPage(lastPageOfPrevChapter);
+              const lastPageOfPrevChapter = isDual && prevChapter.pageCount > 1 
+                ? prevChapter.pageCount - 2 
+                : prevChapter.pageCount - 1;
+              setCurrentPage(Math.max(0, lastPageOfPrevChapter));
               saveProgress(prevChapter.id, true, lastPageOfPrevChapter);
             }
           }
         } else if (e.key === 'ArrowRight' || e.key === 'd') {
-          if (currentChapter && currentPage < currentChapter.pageCount - 1) {
-            const newPage = currentPage + 1;
+          const isDual = shouldShowDualPages();
+          const increment = isDual ? 2 : 1;
+          
+          if (currentChapter && currentPage + increment <= currentChapter.pageCount - 1) {
+            const newPage = currentPage + increment;
             setCurrentPage(newPage);
             saveProgress(currentChapter.id, true, newPage);
           } else if (currentChapter) {
@@ -475,13 +568,25 @@ const UniversalComicReader = () => {
           }
         } else if (e.key === 'Escape') {
           setCurrentView('series');
+        } else if (e.key === ' ' || e.key === 'h') {
+          // Spacebar or 'h' to toggle header
+          e.preventDefault();
+          setShowReaderHeader(!showReaderHeader);
+        } else if (e.key === 's') {
+          // 's' to cycle through image scaling modes
+          e.preventDefault();
+          toggleImageScale();
+        } else if (e.key === 'p') {
+          // 'p' to cycle through page modes
+          e.preventDefault();
+          toggleDualPageMode();
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [currentView, currentPage, currentChapter, chapters]);
+  }, [currentView, currentPage, currentChapter, chapters, showReaderHeader, imageScale, dualPageMode]);
 
   // Filter series and chapters
   const filteredSeries = Object.values(series).filter(s => {
@@ -661,69 +766,136 @@ const UniversalComicReader = () => {
     </div>
   );
 
-  // Reader View
+  // Reader View - IMPROVED WITH RESPONSIVE SCALING AND TOGGLEABLE HEADER
   const ReaderView = () => {
     const currentPageData = currentChapter?.pages[currentPage];
 
     return (
       <div className="fixed inset-0 bg-black z-50 flex flex-col">
-        <div className="bg-black/90 text-white p-4 flex items-center justify-between">
-          <button
-            onClick={() => setCurrentView('series')}
-            className="flex items-center space-x-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span>Back to {currentSeries?.title}</span>
-          </button>
-
-          <div className="flex items-center space-x-4">
-            <span className="text-sm font-medium">{currentChapter?.title}</span>
-            <span className="text-sm text-gray-300">
-              {currentPage + 1} / {currentChapter?.pageCount}
-            </span>
-          </div>
-
-          <div className="flex items-center space-x-2">
+        {/* Header - Toggleable */}
+        <div 
+          className={`absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black via-black/90 to-transparent text-white p-4 transition-all duration-300 ${
+            showReaderHeader ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'
+          }`}
+        >
+          <div className="flex items-center justify-between">
             <button
-              onClick={prevPage}
-              className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              onClick={() => setCurrentView('series')}
+              className="flex items-center space-x-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ArrowLeft className="w-5 h-5" />
+              <span className="hidden sm:inline">Back to {currentSeries?.title}</span>
+              <span className="sm:hidden">Back</span>
             </button>
-            <button
-              onClick={nextPage}
-              className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
+
+            <div className="flex items-center space-x-4">
+              <span className="text-sm font-medium hidden md:inline">{currentChapter?.title}</span>
+              <span className="text-sm text-gray-300">
+                {shouldShowDualPages() && currentPage + 1 < currentChapter?.pageCount 
+                  ? `${currentPage + 1}-${currentPage + 2} / ${currentChapter?.pageCount}`
+                  : `${currentPage + 1} / ${currentChapter?.pageCount}`
+                }
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              {/* Dual page mode toggle */}
+              <button
+                onClick={toggleDualPageMode}
+                className="p-2 rounded-lg hover:bg-white/10 transition-colors text-xs"
+                title={`Page mode: ${dualPageMode}`}
+              >
+                <div className="w-4 h-4 border border-white rounded flex items-center justify-center">
+                  {dualPageMode === 'auto' && '⟷'}
+                  {dualPageMode === 'single' && '▊'}
+                  {dualPageMode === 'dual' && '▊▊'}
+                </div>
+              </button>
+              
+              {/* Image scaling toggle */}
+              <button
+                onClick={toggleImageScale}
+                className="p-2 rounded-lg hover:bg-white/10 transition-colors text-xs"
+                title={`Scale: ${imageScale}`}
+              >
+                <div className="w-4 h-4 border border-white rounded flex items-center justify-center">
+                  {imageScale === 'fit' && '⊞'}
+                  {imageScale === 'width' && '↔'}
+                  {imageScale === 'height' && '↕'}
+                </div>
+              </button>
+              
+              <button
+                onClick={prevPage}
+                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button
+                onClick={nextPage}
+                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
           </div>
         </div>
 
+        {/* Main Image Container */}
         <div
           ref={readerRef}
           onClick={handleReaderClick}
-          className="flex-1 flex items-center justify-center relative cursor-pointer select-none"
+          className="flex-1 flex items-center justify-center relative cursor-pointer select-none overflow-auto bg-black"
+          style={{ height: '100vh' }}
         >
-          {currentPageData && (
+          {getCurrentPages().map((pageData, index) => (
             <img
-              src={currentPageData.imageUrl}
-              alt={`Page ${currentPage + 1}`}
-              className="max-w-full max-h-full object-contain"
+              key={`${currentPage + index}`}
+              src={pageData.imageUrl}
+              alt={`Page ${currentPage + index + 1}`}
+              className={`${getImageClasses()} transition-all duration-200 ${
+                shouldShowDualPages() ? (index === 0 ? 'mr-1' : 'ml-1') : ''
+              }`}
+              style={{
+                maxHeight: showReaderHeader ? 'calc(100vh - 80px)' : '100vh',
+                maxWidth: shouldShowDualPages() ? '50vw' : '100vw'
+              }}
+              onLoad={(e) => {
+                // Optional: Log image dimensions for debugging
+                console.log('Image loaded:', {
+                  page: currentPage + index + 1,
+                  natural: { width: e.target.naturalWidth, height: e.target.naturalHeight },
+                  displayed: { width: e.target.width, height: e.target.height },
+                  scale: imageScale,
+                  dualMode: shouldShowDualPages()
+                });
+              }}
             />
-          )}
+          ))}
 
-          <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white/60 text-sm">
-            Tap left/right to navigate • ESC to return
+          {/* Instructions overlay - fades with header */}
+          <div className={`absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white/60 text-sm bg-black/50 px-3 py-2 rounded-lg transition-all duration-300 ${
+            showReaderHeader ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
+          }`}>
+            {showReaderHeader 
+              ? `Tap left/right to navigate${shouldShowDualPages() ? ' (dual-page)' : ''} • Center to hide controls • ESC to return`
+              : `Tap center to show controls • Left/Right to navigate${shouldShowDualPages() ? ' (dual-page)' : ''}`
+            }
           </div>
         </div>
 
-        <div className="bg-black/90 h-2">
-          <div
-            className="h-full bg-orange-500 transition-all duration-300"
-            style={{
-              width: `${((currentPage + 1) / (currentChapter?.pageCount || 1)) * 100}%`
-            }}
-          ></div>
+        {/* Progress Bar - also fades with header */}
+        <div className={`h-2 transition-all duration-300 ${
+          showReaderHeader ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
+        }`}>
+          <div className="bg-black/90 h-full relative">
+            <div
+              className="h-full bg-orange-500 transition-all duration-300"
+              style={{
+                width: `${((currentPage + 1) / (currentChapter?.pageCount || 1)) * 100}%`
+              }}
+            ></div>
+          </div>
         </div>
       </div>
     );
