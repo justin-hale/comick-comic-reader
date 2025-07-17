@@ -1,101 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
-  Grid,
   Book,
   ArrowLeft,
   Upload,
   Database,
-  User,
-  Plus,
   Search,
-  Star,
-  BookOpen,
-  TrendingUp,
-  Filter
+  BookOpen
 } from 'lucide-react';
 
-// Import Firebase API (you'll need to create these files)
 import { firebaseAPI } from './firebase/api';
-
-// Temporary mock Firebase for testing - replace with real Firebase import above
-// const firebaseAPI = {
-//   initAuth: async () => {
-//     // Simulate successful auth
-//     return {
-//       userId: 'demo_user_123',
-//       userInfo: {
-//         uid: 'demo_user_123',
-//         email: 'demo@example.com',
-//         displayName: 'Demo User',
-//         photoURL: 'https://via.placeholder.com/40'
-//       }
-//     };
-//   },
-//   signInWithGoogle: async () => {
-//     return {
-//       userId: 'demo_user_123',
-//       userInfo: {
-//         uid: 'demo_user_123',
-//         email: 'demo@example.com',
-//         displayName: 'Demo User',
-//         photoURL: 'https://via.placeholder.com/40'
-//       }
-//     };
-//   },
-//   signOutUser: async () => {
-//     return true;
-//   },
-//   loadSeries: async () => {
-//     const seriesKey = 'comic_series';
-//     const series = JSON.parse(localStorage.getItem(seriesKey) || '{}');
-//     return series;
-//   },
-//   saveSeries: async (seriesData) => {
-//     const seriesKey = 'comic_series';
-//     const existingSeries = JSON.parse(localStorage.getItem(seriesKey) || '{}');
-//     existingSeries[seriesData.slug] = seriesData;
-//     localStorage.setItem(seriesKey, JSON.stringify(existingSeries));
-//     return true;
-//   },
-//   saveChapter: async (seriesSlug, chapterData) => {
-//     const chaptersKey = `chapters_${seriesSlug}`;
-//     const existingChapters = JSON.parse(localStorage.getItem(chaptersKey) || '[]');
-//     const existingIndex = existingChapters.findIndex(ch => ch.id === chapterData.id);
-    
-//     if (existingIndex >= 0) {
-//       existingChapters[existingIndex] = chapterData;
-//     } else {
-//       existingChapters.push(chapterData);
-//     }
-    
-//     existingChapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
-//     localStorage.setItem(chaptersKey, JSON.stringify(existingChapters));
-//     return true;
-//   },
-//   loadChapters: async (seriesSlug) => {
-//     const chaptersKey = `chapters_${seriesSlug}`;
-//     const chapters = JSON.parse(localStorage.getItem(chaptersKey) || '[]');
-//     return chapters;
-//   },
-//   saveProgress: async (seriesSlug, chapterData) => {
-//     const progressKey = `progress_demo_user_${seriesSlug}`;
-//     const existingProgress = JSON.parse(localStorage.getItem(progressKey) || '{}');
-//     existingProgress[chapterData.id] = {
-//       isRead: chapterData.isRead,
-//       lastPage: chapterData.lastPage || 0,
-//       readAt: new Date().toISOString()
-//     };
-//     localStorage.setItem(progressKey, JSON.stringify(existingProgress));
-//     return true;
-//   },
-//   loadProgress: async (seriesSlug) => {
-//     const progressKey = `progress_demo_user_${seriesSlug}`;
-//     const progress = JSON.parse(localStorage.getItem(progressKey) || '{}');
-//     return progress;
-//   }
-// };
 
 // Authentication Prompt Component
 const AuthPrompt = ({ handleGoogleSignIn, isLoading, uploadStatus }) => (
@@ -219,10 +133,7 @@ const UniversalComicReader = () => {
   const [currentPage, setCurrentPage] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [userId, setUserId] = useState('demo_user');
-  const [userProgress, setUserProgress] = useState({});
   const [uploadStatus, setUploadStatus] = useState('');
-  const [filterType, setFilterType] = useState('all');
   const readerRef = useRef(null);
   const fileInputRef = useRef(null);
   const [user, setUser] = useState(null);
@@ -499,23 +410,45 @@ const UniversalComicReader = () => {
     }
   };
 
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyPress = (e) => {
-      if (currentView === 'reader') {
-        if (e.key === 'ArrowLeft' || e.key === 'a') {
-          prevPage();
-        } else if (e.key === 'ArrowRight' || e.key === 'd') {
-          nextPage();
-        } else if (e.key === 'Escape') {
-          setCurrentView('series');
+// Keyboard navigation
+useEffect(() => {
+  const handleKeyPress = (e) => {
+    if (currentView === 'reader') {
+      if (e.key === 'ArrowLeft' || e.key === 'a') {
+        if (currentPage > 0) {
+          const newPage = currentPage - 1;
+          setCurrentPage(newPage);
+          saveProgress(currentChapter.id, true, newPage);
+        } else if (currentChapter) {
+          const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
+          if (currentIndex > 0) {
+            const prevChapter = chapters[currentIndex - 1];
+            setCurrentChapter(prevChapter);
+            setCurrentPage(prevChapter.pageCount - 1);
+            saveProgress(prevChapter.id, true, prevChapter.pageCount - 1);
+          }
         }
+      } else if (e.key === 'ArrowRight' || e.key === 'd') {
+        if (currentChapter && currentPage < currentChapter.pageCount - 1) {
+          const newPage = currentPage + 1;
+          setCurrentPage(newPage);
+          saveProgress(currentChapter.id, true, newPage);
+        } else if (currentChapter) {
+          const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
+          if (currentIndex < chapters.length - 1) {
+            const nextChapter = chapters[currentIndex + 1];
+            openChapter(nextChapter);
+          }
+        }
+      } else if (e.key === 'Escape') {
+        setCurrentView('series');
       }
-    };
+    }
+  };
 
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [currentView, currentPage, currentChapter]);
+  window.addEventListener('keydown', handleKeyPress);
+  return () => window.removeEventListener('keydown', handleKeyPress);
+}, [currentView, currentPage, currentChapter, chapters, saveProgress, openChapter]);
 
   // Filter series and chapters
   const filteredSeries = Object.values(series).filter(s => {

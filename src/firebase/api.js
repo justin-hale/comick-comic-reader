@@ -1,23 +1,21 @@
 // src/firebase/api.js
 import { db, auth } from './config';
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  getDocs, 
+import {
+  collection,
+  doc,
+  setDoc,
+  getDocs,
   updateDoc,
   deleteDoc,
   serverTimestamp,
   query,
-  orderBy,
-  where
+  orderBy
 } from 'firebase/firestore';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
+import {
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut,
-  onAuthStateChanged 
+  onAuthStateChanged
 } from 'firebase/auth';
 
 export class FirebaseAPI {
@@ -26,7 +24,7 @@ export class FirebaseAPI {
     this.currentUserInfo = null;
     this.authInitialized = false;
     this.provider = new GoogleAuthProvider();
-    
+
     // Request additional scopes if needed
     this.provider.addScope('profile');
     this.provider.addScope('email');
@@ -81,14 +79,13 @@ export class FirebaseAPI {
     try {
       console.log('🔐 Starting Google sign-in...');
       const result = await signInWithPopup(auth, this.provider);
-      
+
       // This gives you a Google Access Token. You can use it to access the Google API.
       const credential = GoogleAuthProvider.credentialFromResult(result);
-      const token = credential.accessToken;
-      
+
       // The signed-in user info
       const user = result.user;
-      
+
       this.currentUser = user.uid;
       this.currentUserInfo = {
         uid: user.uid,
@@ -109,7 +106,7 @@ export class FirebaseAPI {
       };
     } catch (error) {
       console.error('❌ Google sign-in error:', error);
-      
+
       // Handle specific error codes
       if (error.code === 'auth/popup-closed-by-user') {
         throw new Error('Sign-in was cancelled');
@@ -178,7 +175,7 @@ export class FirebaseAPI {
       const seriesCollection = collection(db, 'users', this.currentUser, 'series');
       const snapshot = await getDocs(seriesCollection);
       const series = {};
-      
+
       snapshot.forEach(doc => {
         series[doc.id] = doc.data();
       });
@@ -224,7 +221,7 @@ export class FirebaseAPI {
       const q = query(chaptersCollection, orderBy('chapterNumber', 'asc'));
       const snapshot = await getDocs(q);
       const chapters = [];
-      
+
       snapshot.forEach(doc => {
         chapters.push(doc.data());
       });
@@ -272,7 +269,7 @@ export class FirebaseAPI {
       const progressCollection = collection(db, 'users', this.currentUser, 'progress', seriesSlug, 'chapters');
       const snapshot = await getDocs(progressCollection);
       const progress = {};
-      
+
       snapshot.forEach(doc => {
         progress[doc.id] = doc.data();
       });
@@ -294,25 +291,23 @@ export class FirebaseAPI {
 
       const seriesCollection = collection(db, 'users', this.currentUser, 'series');
       const seriesSnapshot = await getDocs(seriesCollection);
-      
-      let totalChapters = 0;
-      let readChapters = 0;
-      
+
+      let totalReadChapters = 0;
       for (const seriesDoc of seriesSnapshot.docs) {
         const seriesSlug = seriesDoc.id;
-        
+
         // Count total chapters for this series
         const chaptersCollection = collection(db, 'users', this.currentUser, 'series', seriesSlug, 'chapters');
         const chaptersSnapshot = await getDocs(chaptersCollection);
         totalChapters += chaptersSnapshot.size;
-        
+
         // Count read chapters for this series
         const progressCollection = collection(db, 'users', this.currentUser, 'progress', seriesSlug, 'chapters');
         const progressSnapshot = await getDocs(progressCollection);
-        
+
         progressSnapshot.forEach(doc => {
           if (doc.data().isRead) {
-            readChapters++;
+            totalReadChapters++;
           }
         });
       }
@@ -320,8 +315,8 @@ export class FirebaseAPI {
       const stats = {
         totalSeries: seriesSnapshot.size,
         totalChapters,
-        readChapters,
-        readingProgress: totalChapters > 0 ? Math.round((readChapters / totalChapters) * 100) : 0
+        readChapters: totalReadChapters,
+        readingProgress: totalChapters > 0 ? Math.round((totalReadChapters / totalChapters) * 100) : 0
       };
 
       console.log('📊 Reading stats:', stats);
@@ -342,26 +337,26 @@ export class FirebaseAPI {
       // Delete all chapters
       const chaptersCollection = collection(db, 'users', this.currentUser, 'series', seriesSlug, 'chapters');
       const chaptersSnapshot = await getDocs(chaptersCollection);
-      
+
       const deletePromises = [];
       chaptersSnapshot.forEach(doc => {
         deletePromises.push(deleteDoc(doc.ref));
       });
-      
+
       // Delete all progress
       const progressCollection = collection(db, 'users', this.currentUser, 'progress', seriesSlug, 'chapters');
       const progressSnapshot = await getDocs(progressCollection);
-      
+
       progressSnapshot.forEach(doc => {
         deletePromises.push(deleteDoc(doc.ref));
       });
-      
+
       // Delete series metadata
       const seriesRef = doc(db, 'users', this.currentUser, 'series', seriesSlug);
       deletePromises.push(deleteDoc(seriesRef));
-      
+
       await Promise.all(deletePromises);
-      
+
       console.log('✅ Series deleted:', seriesSlug);
       return true;
     } catch (error) {
