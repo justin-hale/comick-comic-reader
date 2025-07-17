@@ -155,7 +155,6 @@ const UniversalComicReader = () => {
 
       if (authResult.userId) {
         setUser(authResult.userInfo);
-        setUserId(authResult.userId);
 
         // Load user's data
         const loadedSeries = await firebaseAPI.loadSeries();
@@ -188,7 +187,6 @@ const UniversalComicReader = () => {
 
       if (authResult.userId) {
         setUser(authResult.userInfo);
-        setUserId(authResult.userId);
 
         // Load user's data after sign-in
         const loadedSeries = await firebaseAPI.loadSeries();
@@ -211,7 +209,6 @@ const UniversalComicReader = () => {
     try {
       await firebaseAPI.signOutUser();
       setUser(null);
-      setUserId(null);
       setSeries({});
       setChapters([]);
       setCurrentSeries(null);
@@ -319,7 +316,6 @@ const UniversalComicReader = () => {
       }));
 
       setChapters(chaptersWithProgress);
-      setUserProgress(progress);
       setCurrentView('series');
 
     } catch (error) {
@@ -339,11 +335,6 @@ const UniversalComicReader = () => {
         isRead,
         lastPage
       });
-
-      setUserProgress(prev => ({
-        ...prev,
-        [chapterId]: { isRead, lastPage, readAt: new Date().toISOString() }
-      }));
 
       setChapters(prev => prev.map(ch =>
         ch.id === chapterId ? { ...ch, isRead, lastPage } : ch
