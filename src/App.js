@@ -306,39 +306,68 @@ const UniversalComicReader = () => {
     setCurrentSeries(series[seriesSlug]);
 
     try {
-      const seriesChapters = await firebaseAPI.loadChapters(seriesSlug);
-      const progress = await firebaseAPI.loadProgress(seriesSlug);
+      const [seriesChapters, progress] = await Promise.all([
+        firebaseAPI.loadChapters(seriesSlug),
+        firebaseAPI.loadProgress(seriesSlug)
+      ]);
 
-      const chaptersWithProgress = seriesChapters.map(chapter => ({
-        ...chapter,
-        isRead: progress[chapter.id]?.isRead || false,
-        lastPage: progress[chapter.id]?.lastPage || 0
-      }));
+      console.log('Loaded chapters:', seriesChapters.length);
+      console.log('Loaded progress:', Object.keys(progress).length);
+
+      // Merge chapters with progress data
+      const chaptersWithProgress = seriesChapters.map(chapter => {
+        const chapterProgress = progress[chapter.id.toString()] || {};
+        return {
+          ...chapter,
+          isRead: chapterProgress.isRead || false,
+          lastPage: chapterProgress.lastPage || 0
+        };
+      });
+
+      console.log('Chapters with progress:', chaptersWithProgress.map(ch => ({
+        id: ch.id,
+        title: ch.title,
+        isRead: ch.isRead,
+        lastPage: ch.lastPage
+      })));
 
       setChapters(chaptersWithProgress);
       setCurrentView('series');
 
     } catch (error) {
       console.error('Error opening series:', error);
+      setUploadStatus('Error loading series data.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Save reading progress
+  // Save reading progress - FIXED VERSION
   const saveProgress = async (chapterId, isRead, lastPage = 0) => {
-    if (!currentSeries) return;
+    if (!currentSeries || !currentChapter) return;
 
     try {
-      await firebaseAPI.saveProgress(currentSeries.slug, {
-        id: chapterId,
+      console.log('Saving progress:', {
+        series: currentSeries.slug,
+        chapterId,
         isRead,
         lastPage
       });
 
+      await firebaseAPI.saveProgress(currentSeries.slug, {
+        id: chapterId,
+        isRead,
+        lastPage,
+        chapterNumber: currentChapter.chapterNumber,
+        title: currentChapter.title
+      });
+
+      // Update local state immediately
       setChapters(prev => prev.map(ch =>
-        ch.id === chapterId ? { ...ch, isRead, lastPage } : ch
+        ch.id.toString() === chapterId.toString() ? { ...ch, isRead, lastPage } : ch
       ));
+
+      console.log('Progress saved successfully');
 
     } catch (error) {
       console.error('Error saving progress:', error);
@@ -347,25 +376,31 @@ const UniversalComicReader = () => {
 
   // Open chapter in reader
   const openChapter = (chapter) => {
+    console.log('Opening chapter:', chapter.title, 'Last page:', chapter.lastPage);
     setCurrentChapter(chapter);
     setCurrentPage(chapter.lastPage || 0);
     setCurrentView('reader');
 
+    // Mark as read when opening
     if (!chapter.isRead) {
       saveProgress(chapter.id, true, chapter.lastPage || 0);
     }
   };
 
-  // Navigation functions
+  // Navigation functions - UPDATED TO SAVE PROGRESS
   const nextPage = () => {
     if (currentChapter && currentPage < currentChapter.pageCount - 1) {
       const newPage = currentPage + 1;
       setCurrentPage(newPage);
+      // Save progress for current page
       saveProgress(currentChapter.id, true, newPage);
     } else if (currentChapter) {
+      // Move to next chapter
       const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
       if (currentIndex < chapters.length - 1) {
         const nextChapter = chapters[currentIndex + 1];
+        // Mark current chapter as fully read before moving to next
+        saveProgress(currentChapter.id, true, currentChapter.pageCount - 1);
         openChapter(nextChapter);
       }
     }
@@ -375,14 +410,17 @@ const UniversalComicReader = () => {
     if (currentPage > 0) {
       const newPage = currentPage - 1;
       setCurrentPage(newPage);
+      // Save progress for current page
       saveProgress(currentChapter.id, true, newPage);
     } else if (currentChapter) {
+      // Move to previous chapter
       const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
       if (currentIndex > 0) {
         const prevChapter = chapters[currentIndex - 1];
         setCurrentChapter(prevChapter);
-        setCurrentPage(prevChapter.pageCount - 1);
-        saveProgress(prevChapter.id, true, prevChapter.pageCount - 1);
+        const lastPageOfPrevChapter = prevChapter.pageCount - 1;
+        setCurrentPage(lastPageOfPrevChapter);
+        saveProgress(prevChapter.id, true, lastPageOfPrevChapter);
       }
     }
   };
@@ -402,45 +440,48 @@ const UniversalComicReader = () => {
     }
   };
 
-// Keyboard navigation
-useEffect(() => {
-  const handleKeyPress = (e) => {
-    if (currentView === 'reader') {
-      if (e.key === 'ArrowLeft' || e.key === 'a') {
-        if (currentPage > 0) {
-          const newPage = currentPage - 1;
-          setCurrentPage(newPage);
-          saveProgress(currentChapter.id, true, newPage);
-        } else if (currentChapter) {
-          const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
-          if (currentIndex > 0) {
-            const prevChapter = chapters[currentIndex - 1];
-            setCurrentChapter(prevChapter);
-            setCurrentPage(prevChapter.pageCount - 1);
-            saveProgress(prevChapter.id, true, prevChapter.pageCount - 1);
+  // Keyboard navigation - UPDATED TO SAVE PROGRESS
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (currentView === 'reader') {
+        if (e.key === 'ArrowLeft' || e.key === 'a') {
+          if (currentPage > 0) {
+            const newPage = currentPage - 1;
+            setCurrentPage(newPage);
+            saveProgress(currentChapter.id, true, newPage);
+          } else if (currentChapter) {
+            const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
+            if (currentIndex > 0) {
+              const prevChapter = chapters[currentIndex - 1];
+              setCurrentChapter(prevChapter);
+              const lastPageOfPrevChapter = prevChapter.pageCount - 1;
+              setCurrentPage(lastPageOfPrevChapter);
+              saveProgress(prevChapter.id, true, lastPageOfPrevChapter);
+            }
           }
-        }
-      } else if (e.key === 'ArrowRight' || e.key === 'd') {
-        if (currentChapter && currentPage < currentChapter.pageCount - 1) {
-          const newPage = currentPage + 1;
-          setCurrentPage(newPage);
-          saveProgress(currentChapter.id, true, newPage);
-        } else if (currentChapter) {
-          const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
-          if (currentIndex < chapters.length - 1) {
-            const nextChapter = chapters[currentIndex + 1];
-            openChapter(nextChapter);
+        } else if (e.key === 'ArrowRight' || e.key === 'd') {
+          if (currentChapter && currentPage < currentChapter.pageCount - 1) {
+            const newPage = currentPage + 1;
+            setCurrentPage(newPage);
+            saveProgress(currentChapter.id, true, newPage);
+          } else if (currentChapter) {
+            const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
+            if (currentIndex < chapters.length - 1) {
+              const nextChapter = chapters[currentIndex + 1];
+              // Mark current chapter as fully read
+              saveProgress(currentChapter.id, true, currentChapter.pageCount - 1);
+              openChapter(nextChapter);
+            }
           }
+        } else if (e.key === 'Escape') {
+          setCurrentView('series');
         }
-      } else if (e.key === 'Escape') {
-        setCurrentView('series');
       }
-    }
-  };
+    };
 
-  window.addEventListener('keydown', handleKeyPress);
-  return () => window.removeEventListener('keydown', handleKeyPress);
-}, [currentView, currentPage, currentChapter, chapters, saveProgress, openChapter]);
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [currentView, currentPage, currentChapter, chapters]);
 
   // Filter series and chapters
   const filteredSeries = Object.values(series).filter(s => {

@@ -9,7 +9,8 @@ import {
   deleteDoc,
   serverTimestamp,
   query,
-  orderBy
+  orderBy,
+  getDoc
 } from 'firebase/firestore';
 import {
   signInWithPopup,
@@ -234,24 +235,49 @@ export class FirebaseAPI {
     }
   }
 
-  // Save reading progress for a chapter
-  async saveProgress(seriesSlug, chapterData) {
+  // Save reading progress for a chapter - IMPROVED VERSION
+  async saveProgress(seriesSlug, progressData) {
     try {
       if (!this.currentUser) {
         throw new Error('User not authenticated');
       }
 
-      const progressRef = doc(db, 'users', this.currentUser, 'progress', seriesSlug, 'chapters', chapterData.id.toString());
-      await setDoc(progressRef, {
-        isRead: chapterData.isRead || false,
-        lastPage: chapterData.lastPage || 0,
-        chapterNumber: chapterData.chapterNumber,
-        title: chapterData.title,
-        readAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+      // Ensure we have the required data
+      if (!progressData.id) {
+        console.error('❌ Cannot save progress: missing chapter ID');
+        return false;
+      }
 
-      console.log('✅ Progress saved:', seriesSlug, chapterData.id);
+      const progressRef = doc(
+        db, 
+        'users', 
+        this.currentUser, 
+        'progress', 
+        seriesSlug, 
+        'chapters', 
+        progressData.id.toString()
+      );
+
+      const progressToSave = {
+        chapterId: progressData.id.toString(),
+        isRead: progressData.isRead || false,
+        lastPage: Math.max(0, progressData.lastPage || 0),
+        chapterNumber: progressData.chapterNumber || 0,
+        title: progressData.title || 'Unknown Chapter',
+        readAt: progressData.isRead ? serverTimestamp() : null,
+        updatedAt: serverTimestamp(),
+        seriesSlug: seriesSlug
+      };
+
+      await setDoc(progressRef, progressToSave, { merge: true });
+
+      console.log('✅ Progress saved:', {
+        series: seriesSlug,
+        chapter: progressData.id,
+        isRead: progressData.isRead,
+        lastPage: progressData.lastPage
+      });
+
       return true;
     } catch (error) {
       console.error('❌ Error saving progress:', error);
@@ -259,30 +285,108 @@ export class FirebaseAPI {
     }
   }
 
-  // Load reading progress for a specific series
+  // Load reading progress for a specific series - IMPROVED VERSION
   async loadProgress(seriesSlug) {
     try {
       if (!this.currentUser) {
         throw new Error('User not authenticated');
       }
 
-      const progressCollection = collection(db, 'users', this.currentUser, 'progress', seriesSlug, 'chapters');
+      const progressCollection = collection(
+        db, 
+        'users', 
+        this.currentUser, 
+        'progress', 
+        seriesSlug, 
+        'chapters'
+      );
+      
       const snapshot = await getDocs(progressCollection);
       const progress = {};
 
       snapshot.forEach(doc => {
-        progress[doc.id] = doc.data();
+        const data = doc.data();
+        // Use the chapterId from the document data, fallback to doc.id
+        const chapterId = data.chapterId || doc.id;
+        progress[chapterId] = data;
       });
 
-      console.log('✅ Progress loaded for', seriesSlug, ':', Object.keys(progress).length, 'chapters');
+      console.log('✅ Progress loaded for', seriesSlug, ':', {
+        chaptersWithProgress: Object.keys(progress).length,
+        progressData: Object.keys(progress).map(id => ({
+          id,
+          isRead: progress[id].isRead,
+          lastPage: progress[id].lastPage
+        }))
+      });
+
       return progress;
     } catch (error) {
       console.error('❌ Error loading progress:', error);
-      throw error;
+      return {}; // Return empty object instead of throwing
     }
   }
 
-  // Get reading statistics across all series
+  // Get reading progress for a specific chapter
+  async getChapterProgress(seriesSlug, chapterId) {
+    try {
+      if (!this.currentUser) {
+        throw new Error('User not authenticated');
+      }
+
+      const progressRef = doc(
+        db, 
+        'users', 
+        this.currentUser, 
+        'progress', 
+        seriesSlug, 
+        'chapters', 
+        chapterId.toString()
+      );
+
+      const docSnap = await getDoc(progressRef);
+
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        console.log('✅ Chapter progress loaded:', chapterId, data);
+        return data;
+      } else {
+        console.log('📖 No progress found for chapter:', chapterId);
+        return {
+          chapterId: chapterId.toString(),
+          isRead: false,
+          lastPage: 0
+        };
+      }
+    } catch (error) {
+      console.error('❌ Error getting chapter progress:', error);
+      return {
+        chapterId: chapterId.toString(),
+        isRead: false,
+        lastPage: 0
+      };
+    }
+  }
+
+  // Mark chapter as read (convenience method)
+  async markChapterAsRead(seriesSlug, chapterData) {
+    return this.saveProgress(seriesSlug, {
+      ...chapterData,
+      isRead: true,
+      lastPage: (chapterData.pageCount || 1) - 1
+    });
+  }
+
+  // Mark chapter as unread (convenience method)
+  async markChapterAsUnread(seriesSlug, chapterId) {
+    return this.saveProgress(seriesSlug, {
+      id: chapterId,
+      isRead: false,
+      lastPage: 0
+    });
+  }
+
+  // Get reading statistics across all series - IMPROVED VERSION
   async getReadingStats() {
     try {
       if (!this.currentUser) {
@@ -292,33 +396,46 @@ export class FirebaseAPI {
       const seriesCollection = collection(db, 'users', this.currentUser, 'series');
       const seriesSnapshot = await getDocs(seriesCollection);
 
-      let totalChapters = 0; // ADD THIS LINE - declare the variable
+      let totalChapters = 0;
       let totalReadChapters = 0;
+      const seriesStats = {};
 
       for (const seriesDoc of seriesSnapshot.docs) {
         const seriesSlug = seriesDoc.id;
+        const seriesData = seriesDoc.data();
 
         // Count total chapters for this series
         const chaptersCollection = collection(db, 'users', this.currentUser, 'series', seriesSlug, 'chapters');
         const chaptersSnapshot = await getDocs(chaptersCollection);
-        totalChapters += chaptersSnapshot.size;
+        const seriesChapterCount = chaptersSnapshot.size;
+        totalChapters += seriesChapterCount;
 
         // Count read chapters for this series
         const progressCollection = collection(db, 'users', this.currentUser, 'progress', seriesSlug, 'chapters');
         const progressSnapshot = await getDocs(progressCollection);
 
+        let seriesReadCount = 0;
         progressSnapshot.forEach(doc => {
           if (doc.data().isRead) {
+            seriesReadCount++;
             totalReadChapters++;
           }
         });
+
+        seriesStats[seriesSlug] = {
+          title: seriesData.title,
+          totalChapters: seriesChapterCount,
+          readChapters: seriesReadCount,
+          progress: seriesChapterCount > 0 ? Math.round((seriesReadCount / seriesChapterCount) * 100) : 0
+        };
       }
 
       const stats = {
         totalSeries: seriesSnapshot.size,
         totalChapters,
         readChapters: totalReadChapters,
-        readingProgress: totalChapters > 0 ? Math.round((totalReadChapters / totalChapters) * 100) : 0
+        readingProgress: totalChapters > 0 ? Math.round((totalReadChapters / totalChapters) * 100) : 0,
+        seriesBreakdown: seriesStats
       };
 
       console.log('📊 Reading stats:', stats);
@@ -384,6 +501,53 @@ export class FirebaseAPI {
       return true;
     } catch (error) {
       console.error('❌ Error updating series:', error);
+      throw error;
+    }
+  }
+
+  // Batch update progress for multiple chapters (useful for syncing)
+  async batchUpdateProgress(seriesSlug, progressUpdates) {
+    try {
+      if (!this.currentUser) {
+        throw new Error('User not authenticated');
+      }
+
+      const promises = progressUpdates.map(update => 
+        this.saveProgress(seriesSlug, update)
+      );
+
+      await Promise.all(promises);
+      console.log('✅ Batch progress update completed:', progressUpdates.length, 'chapters');
+      return true;
+    } catch (error) {
+      console.error('❌ Error in batch progress update:', error);
+      throw error;
+    }
+  }
+
+  // Sync progress from local state (if you implement offline support later)
+  async syncProgress(localProgressData) {
+    try {
+      if (!this.currentUser) {
+        throw new Error('User not authenticated');
+      }
+
+      const syncPromises = [];
+      
+      for (const [seriesSlug, seriesProgress] of Object.entries(localProgressData)) {
+        for (const [chapterId, progressData] of Object.entries(seriesProgress)) {
+          syncPromises.push(this.saveProgress(seriesSlug, {
+            id: chapterId,
+            ...progressData
+          }));
+        }
+      }
+
+      await Promise.all(syncPromises);
+      console.log('✅ Progress sync completed');
+      return true;
+    } catch (error) {
+      console.error('❌ Error syncing progress:', error);
       throw error;
     }
   }
