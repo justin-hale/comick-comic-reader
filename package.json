@@ -1,6 +1,7 @@
 {
   "name": "comick-comic-reader",
   "version": "0.1.0",
+  "homepage": "https://justin-hale.github.io/comick-comic-reader",
   "private": true,
   "dependencies": {
     "@testing-library/dom": "^10.4.0",
