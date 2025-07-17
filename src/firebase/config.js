@@ -7,13 +7,13 @@ import { getAuth } from "firebase/auth";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyCli3bi9pwxwzPeQ1KTrTTFw7eAs0GBS1Q",
-  authDomain: "comick-reader.firebaseapp.com",
-  projectId: "comick-reader",
-  storageBucket: "comick-reader.firebasestorage.app",
-  messagingSenderId: "879088811255",
-  appId: "1:879088811255:web:4bdbb5421794c5562267f2",
-  measurementId: "G-VK37FZE3EX"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase
