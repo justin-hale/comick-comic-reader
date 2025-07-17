@@ -292,7 +292,9 @@ export class FirebaseAPI {
       const seriesCollection = collection(db, 'users', this.currentUser, 'series');
       const seriesSnapshot = await getDocs(seriesCollection);
 
+      let totalChapters = 0; // ADD THIS LINE - declare the variable
       let totalReadChapters = 0;
+
       for (const seriesDoc of seriesSnapshot.docs) {
         const seriesSlug = seriesDoc.id;
 
